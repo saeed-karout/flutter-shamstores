@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/order_service.dart';
 import '../utils/constants.dart';
+import '../utils/formatters.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -35,8 +36,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 return Card(
                   child: ListTile(
                     title: Text('طلب #${order.orderNumber}'),
-                    subtitle: Text(order.createdAt),
-                    trailing: Text('${order.total.toStringAsFixed(2)} ر.س', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(DateFmt.dateTime(order.createdAt)),
+                    trailing: Text(Money.format(order.total), style: const TextStyle(fontWeight: FontWeight.bold)),
                     onTap: () => Navigator.pushNamed(context, AppRoutes.orderDetail, arguments: order.id),
                   ),
                 );

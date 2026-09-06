@@ -10,6 +10,7 @@ import '../utils/constants.dart';
 import 'order_detail_screen.dart';
 import 'history_screen.dart';
 import 'earnings_screen.dart';
+import '../utils/formatters.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,7 +20,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  int _selectedTab = 0;
   bool _isOnline = false;
   late TabController _tabController;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -40,6 +40,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// يقارن عدد الطلبات قبل التحديث وبعده: التنبيه للطلب *الجديد* وحده، فلا
+  /// يرنّ في جيب السائق كلّما غيّر هو نفسه حالة طلب.
+  void _onRealtimeOrder(Map<String, dynamic> data) async {
+    final orderService = context.read<OrderService>();
+    final before = orderService.orders.length;
+    await orderService.refreshQuietly();
+    if (!mounted) return;
+
+    final after = orderService.orders.length;
+    if (after > before) {
+      _playSound();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔔 لديك طلب جديد'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
   Future<void> _initServices() async {
     final authService = context.read<AuthService>();
     final orderService = context.read<OrderService>();
@@ -49,54 +71,74 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (authService.authHeader != null) {
       orderService.setAuthHeader(authService.authHeader!);
       locationService.setAuthHeader(authService.authHeader!);
+      // الاشتراك بدالّة ردّ لا بالحدث مباشرةً: التسجيل على الـsocket في كل
+      // بناءٍ للشاشة كان يكرّر المعالج، فيرنّ التنبيه مرّاتٍ لحدثٍ واحد.
+      socketService.addOrderListener(_onRealtimeOrder);
       socketService.setAuthHeader(authService.authHeader!);
-      socketService.initSocket();
-
-      // Listen for new orders via socket
-      socketService.on('new_order', (data) {
-        debugPrint('Socket: New order received: $data');
-        _playSound(); // تشغيل صوت التنبيه
-        orderService.fetchOrders();
-        orderService.fetchStats();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('🔔 لديك طلب جديد!'),
-              backgroundColor: AppColors.success,
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 5),
-            ),
-          );
-        }
-      });
-
-      // Also listen for status updates (optional but good for real-time)
-      socketService.on('order_status_updated', (data) {
-        orderService.fetchOrders();
-      });
     }
 
     await orderService.fetchOrders();
     await orderService.fetchStats();
+    // حالة الحضور تأتي من الخادم لا من ذاكرة الشاشة: السائق قد يكون متصلاً
+    // من جلسة سابقة، فيفتح التطبيق فيجد الزرّ مطفأً وهو يستقبل طلبات.
+    final online = await orderService.fetchAvailability();
+    if (mounted && online) {
+      setState(() => _isOnline = true);
+      await locationService.startTracking();
+    }
+
     orderService.startPolling();
   }
 
+  /// تبديل الحضور.
+  ///
+  /// **العلّة التي كانت هنا:** الزرّ يشغّل تتبّع الموقع محلياً ولا يخبر
+  /// الخادم. و`assignDeliveryDriver` يرفض التعيين لسائق `isOnline = false`
+  /// بخطأ 403 — فالسائق «متاح» على شاشته و«غير متاح» عند التاجر، ولا يصله
+  /// طلب واحد مهما انتظر.
   Future<void> _toggleOnlineStatus() async {
-    setState(() => _isOnline = !_isOnline);
+    final next = !_isOnline;
+    final orderService = context.read<OrderService>();
     final locationService = context.read<LocationService>();
-    if (_isOnline) {
+
+    setState(() => _isOnline = next);
+
+    final ok = await orderService.setOnline(next);
+    if (!mounted) return;
+
+    if (!ok) {
+      // لا نترك الزرّ يكذب: فشل الخادم يعيد الحالة كما كانت
+      setState(() => _isOnline = !next);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تعذّر تحديث حالتك — تحقّق من الاتصال'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (next) {
       await locationService.startTracking();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('أنت الآن متاح لاستقبال الطلبات'),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('أنت الآن متاح لاستقبال الطلبات'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } else {
       await locationService.stopTracking();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('أنت خارج الخدمة الآن'),
+          backgroundColor: AppColors.textMuted,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -130,7 +172,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    // بلا إلغاء الاشتراك يبقى المعالج معلّقاً على خدمةٍ تعيش أطول من الشاشة
+    context.read<SocketService>().removeOrderListener(_onRealtimeOrder);
     _tabController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -351,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         children: [
           _premiumStatItem('اليوم', '${stats.todayOrders}', Icons.shopping_cart_outlined),
           _premiumStatItem('المكتملة', '${stats.completedOrders}', Icons.check_circle_outline),
-          _premiumStatItem('الأرباح', '${stats.todayEarnings} ر.س', Icons.account_balance_wallet_outlined),
+          _premiumStatItem('الأرباح', Money.format(stats.todayEarnings), Icons.account_balance_wallet_outlined),
           _premiumStatItem('التقييم', '${stats.rating}★', Icons.star_outline),
         ],
       ),
@@ -576,7 +621,7 @@ class _OrderCard extends StatelessWidget {
                 child: Row(
                   children: [
                     Text(
-                      '${order.total.toStringAsFixed(2)} ر.س',
+                      Money.format(order.total),
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w900,

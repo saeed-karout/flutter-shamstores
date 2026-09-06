@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
 import 'services/auth_service.dart';
@@ -11,11 +12,15 @@ import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/order_detail_screen.dart';
+import 'screens/tracking_screen.dart';
 import 'utils/app_theme.dart';
 import 'utils/constants.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // بلا هذا يرمي `DateFormat(..., 'ar')` استثناء LocaleDataException عند أول
+  // تاريخ يُعرض — وشاشة السجلّ كلّها تواريخ.
+  await initializeDateFormatting('ar');
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -67,6 +72,12 @@ class ShamDeliveryApp extends StatelessWidget {
             final orderId = settings.arguments as String;
             return MaterialPageRoute(
               builder: (_) => OrderDetailScreen(orderId: orderId),
+            );
+          }
+          if (settings.name == AppRoutes.tracking) {
+            final orderId = settings.arguments as String;
+            return MaterialPageRoute(
+              builder: (_) => TrackingScreen(orderId: orderId),
             );
           }
           return null;

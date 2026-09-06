@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/order_service.dart';
 import '../utils/constants.dart';
+import '../utils/formatters.dart';
 
 class EarningsScreen extends StatefulWidget {
   const EarningsScreen({super.key});
@@ -32,7 +33,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              _buildStatCard('إجمالي الأرباح', '${stats.totalEarnings.toStringAsFixed(2)} ر.س', Icons.account_balance_wallet, Colors.green),
+              _buildStatCard('إجمالي الأرباح', Money.format(stats.totalEarnings), Icons.account_balance_wallet, Colors.green),
               const SizedBox(height: 15),
               Row(
                 children: [

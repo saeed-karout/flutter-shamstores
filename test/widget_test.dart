@@ -1,30 +1,48 @@
-// This is a basic Flutter widget test.
+// اختبار دخان: يبني التطبيق ويتأكّد أنه يقف على شاشة البداية.
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// كان الملف قالبَ `flutter create` بحاله — يبني `MyApp` (لا وجود لها، اسم
+// الصنف `ShamDeliveryApp`) ويبحث عن عدّادٍ لا مكان له في تطبيق توصيل. فكان
+// `flutter analyze` يرسب بخطأ ترجمة، و`flutter test` يفشل دائماً — واختبارٌ
+// راسبٌ أبداً يُقرأ ضوضاءً فيُطفأ، ثم لا يبقى اختبار.
+//
+// نتوقّف عند شاشة البداية عمداً ولا نتجاوزها: ما بعدها يقرأ التخزين ويسأل
+// الشبكة، وذلك اختبار تكامل لا اختبار دخان.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
-import 'package:sham_delivery/main.dart';
+import 'package:sham_delivery/screens/splash_screen.dart';
+import 'package:sham_delivery/services/auth_service.dart';
+import 'package:sham_delivery/utils/app_theme.dart';
+import 'package:sham_delivery/utils/constants.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('شاشة البداية تُبنى بلا أخطاء', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => AuthService(),
+        child: MaterialApp(
+          theme: AppTheme.lightTheme,
+          // الشاشة تنتقل إلى /login بعد ثانيتين؛ وجهةٌ فارغة تكفي — الغرض
+          // أن تُبنى شاشة البداية لا أن يُختبر ما بعدها
+          routes: {
+            AppRoutes.login: (_) => const Scaffold(),
+            AppRoutes.home: (_) => const Scaffold(),
+          },
+          home: const Directionality(
+            textDirection: TextDirection.rtl,
+            child: SplashScreen(),
+          ),
+        ),
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
     await tester.pump();
+    expect(find.byType(SplashScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // مؤقّت التنقّل يبقى معلّقاً وإلا رسب الاختبار بـ«Pending timers»
+    await tester.pump(const Duration(seconds: 3));
   });
 }

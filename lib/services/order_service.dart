@@ -18,7 +18,9 @@ class OrderService extends ChangeNotifier {
   List<DeliveryOrder> get activeOrders =>
       _orders.where((o) => o.isActive).toList();
   List<DeliveryOrder> get pendingOrders =>
-      _orders.where((o) => o.status == 'ready').toList();
+      _orders.where((o) => o.awaitingPickup).toList();
+  List<DeliveryOrder> get onTheWayOrders =>
+      _orders.where((o) => o.onTheWay).toList();
   List<DeliveryOrder> get completedOrders =>
       _orders.where((o) => o.isCompleted).toList();
   DriverStats get stats => _stats;
@@ -83,8 +85,14 @@ class OrderService extends ChangeNotifier {
 
   Future<void> fetchEarnings() async => fetchStats();
 
+  /// «استلمت الطلب وانطلقت» — لا حالة `accepted` في الخادم، والانتقال
+  /// الصحيح من `ready` هو `delivering`.
   Future<bool> acceptOrder(String orderId) async {
     return _updateOrderStatus(orderId, 'delivering');
+  }
+
+  Future<bool> updateStatus(String orderId, String status) async {
+    return _updateOrderStatus(orderId, status);
   }
 
   Future<void> fetchHistory() async {
@@ -92,7 +100,11 @@ class OrderService extends ChangeNotifier {
     try {
       final res = await _dio.get('/delivery/driver/history');
       final data = res.data;
-      final list = data is List ? data : (data['data'] as List? ?? []);
+      // الخادم يردّ `{data: {orders, pagination}}` لا مصفوفةً مباشرة، وقراءته
+      // كمصفوفة كانت تعطي `null` دائماً — فيبقى السجلّ فارغاً أبداً.
+      final list = data is List
+          ? data
+          : (data['data']?['orders'] as List? ?? data['data'] as List? ?? []);
       _history = list
           .where((e) => e is Map<String, dynamic>)
           .map((e) => DeliveryOrder.fromJson(e as Map<String, dynamic>))
@@ -252,15 +264,54 @@ class OrderService extends ChangeNotifier {
     }
   }
 
+  /// دورة احتياطية.
+  ///
+  /// السوكِت هو المصدر الأساسي بعد إصلاح أسماء الأحداث؛ هذه تمسك ما يضيع
+  /// حين تنقطع الشبكة أو ينام النظام. لذلك صارت أبطأ: كانت كل ٣٠ ثانية
+  /// وهي المصدر الوحيد فعلياً، فتستهلك بطارية السائق طوال نوبته.
   void startPolling() {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: AppConfig.pollIntervalSeconds),
       (_) async {
         await fetchOrders();
         await fetchStats();
       },
     );
+  }
+
+  /// تحديث فوري يستدعيه السوكِت — بلا شاشة تحميل تقفز أمام السائق
+  Future<void> refreshQuietly() async {
+    await fetchOrders();
+    await fetchStats();
+  }
+
+  /// حضور السائق.
+  ///
+  /// كان الزرّ يشغّل تتبّع الموقع محلياً ولا يخبر الخادم. و
+  /// `assignDeliveryDriver` يرفض التعيين لسائق غير متصل (403)، فالسائق
+  /// «متاح» على شاشته و«غير متاح» عند التاجر — ولا يصله طلب أبداً.
+  Future<bool> setOnline(bool online) async {
+    if (_authHeader == null) return false;
+    try {
+      await _dio.post(online ? '/delivery/driver/online' : '/delivery/driver/offline');
+      return true;
+    } catch (e) {
+      debugPrint('setOnline error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> fetchAvailability() async {
+    if (_authHeader == null) return false;
+    try {
+      final res = await _dio.get('/delivery/driver/availability');
+      final data = res.data['data'] ?? res.data;
+      return data['isOnline'] == true;
+    } catch (e) {
+      debugPrint('fetchAvailability error: $e');
+      return false;
+    }
   }
 
   void stopPolling() {

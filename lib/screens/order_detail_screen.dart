@@ -2,13 +2,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/order_service.dart';
 import '../services/location_service.dart';
 import '../models/order_model.dart';
 import '../utils/constants.dart';
+import '../widgets/delivery_map.dart';
+import '../utils/formatters.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final String orderId;
@@ -21,7 +23,6 @@ class OrderDetailScreen extends StatefulWidget {
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
   bool _actionLoading = false;
-  GoogleMapController? _mapController;
   File? _deliveryImage;
 
   Future<void> _pickImage() async {
@@ -30,12 +31,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     if (pickedFile != null) {
       setState(() => _deliveryImage = File(pickedFile.path));
     }
-  }
-
-  @override
-  void dispose() {
-    _mapController?.dispose();
-    super.dispose();
   }
 
   Future<void> _launchPhone(String phone) async {
@@ -76,34 +71,32 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
                 children: [
-                  if (order.deliveryLat != null && order.deliveryLng != null)
-                    GoogleMap(
-                      initialCameraPosition: CameraPosition(
-                        target: LatLng(order.deliveryLat!, order.deliveryLng!),
-                        zoom: 15,
-                      ),
-                      markers: {
-                        Marker(
-                          markerId: const MarkerId('delivery'),
-                          position: LatLng(order.deliveryLat!, order.deliveryLng!),
-                          infoWindow: InfoWindow(title: 'موقع التوصيل', snippet: order.deliveryAddress),
-                          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-                        ),
-                        if (locationService.currentPosition != null)
-                          Marker(
-                            markerId: const MarkerId('driver'),
-                            position: LatLng(locationService.currentPosition!.latitude, locationService.currentPosition!.longitude),
-                            infoWindow: const InfoWindow(title: 'موقعي الحالي'),
-                            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-                          ),
-                      },
-                      onMapCreated: (controller) => _mapController = controller,
-                      myLocationEnabled: true,
-                      myLocationButtonEnabled: false,
-                      zoomControlsEnabled: false,
-                    )
-                  else
-                    Container(color: AppColors.secondary, child: const Center(child: Icon(Icons.map, size: 50, color: Colors.white24))),
+                  // معاينة غير تفاعلية: النقر يفتح شاشة التتبّع كاملة، بدل
+                  // خريطة صغيرة تسرق لمسة السائق وهو يريد التمرير
+                  GestureDetector(
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.tracking,
+                      arguments: order.id,
+                    ),
+                    child: DeliveryMap(
+                      interactive: false,
+                      pickup: order.hasPickupPoint
+                          ? LatLng(order.restaurantLat!, order.restaurantLng!)
+                          : null,
+                      drop: order.hasDropPoint
+                          ? LatLng(order.deliveryLat!, order.deliveryLng!)
+                          : null,
+                      driver: locationService.currentPosition != null
+                          ? LatLng(
+                              locationService.currentPosition!.latitude,
+                              locationService.currentPosition!.longitude,
+                            )
+                          : null,
+                      pickupLabel: order.restaurantName ?? 'الاستلام',
+                      dropLabel: order.customerName ?? 'التسليم',
+                    ),
+                  ),
                   
                   Container(
                     decoration: BoxDecoration(
@@ -115,19 +108,24 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     ),
                   ),
 
-                  if (order.deliveryLat != null && order.deliveryLng != null)
+                  if (order.hasDropPoint || order.hasPickupPoint)
                     Positioned(
                       bottom: 15,
                       right: 15,
-                      child: FloatingActionButton.small(
-                        heroTag: 'recenter',
+                      child: FloatingActionButton.extended(
+                        heroTag: 'open-tracking',
                         backgroundColor: Colors.white,
-                        onPressed: () {
-                          _mapController?.animateCamera(
-                            CameraUpdate.newLatLngZoom(LatLng(order.deliveryLat!, order.deliveryLng!), 15),
-                          );
-                        },
-                        child: const Icon(Icons.center_focus_strong, color: AppColors.primary),
+                        foregroundColor: AppColors.primary,
+                        onPressed: () => Navigator.pushNamed(
+                          context,
+                          AppRoutes.tracking,
+                          arguments: order.id,
+                        ),
+                        icon: const Icon(Icons.map_outlined, size: 18),
+                        label: const Text(
+                          'تتبّع على الخريطة',
+                          style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w700, fontSize: 12.5),
+                        ),
                       ),
                     ),
                 ],
@@ -228,7 +226,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(child: Text(item.itemName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
-              Text('${item.price.toStringAsFixed(2)} ر.س', style: const TextStyle(color: AppColors.textMuted)),
+              Text(Money.format(item.price), style: const TextStyle(color: AppColors.textMuted)),
             ],
           ),
         )).toList(),
@@ -282,15 +280,15 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(20)),
       child: Column(
         children: [
-          _summaryRow('المجموع الفرعي', '${order.subtotal.toStringAsFixed(2)} ر.س', Colors.white70),
-          _summaryRow('رسوم التوصيل', '+${order.deliveryFee.toStringAsFixed(2)} ر.س', Colors.white70),
-          if (order.discountAmount > 0) _summaryRow('الخصم', '-${order.discountAmount.toStringAsFixed(2)} ر.س', AppColors.accent),
+          _summaryRow('المجموع الفرعي', Money.format(order.subtotal), Colors.white70),
+          _summaryRow('رسوم التوصيل', '+${Money.format(order.deliveryFee)}', Colors.white70),
+          if (order.discountAmount > 0) _summaryRow('الخصم', '-${Money.format(order.discountAmount)}', AppColors.accent),
           const Divider(color: Colors.white24, height: 30),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('الإجمالي', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-              Text('${order.total.toStringAsFixed(2)} ر.س', style: const TextStyle(color: AppColors.accent, fontSize: 20, fontWeight: FontWeight.w900)),
+              Text(Money.format(order.total), style: const TextStyle(color: AppColors.accent, fontSize: 20, fontWeight: FontWeight.w900)),
             ],
           ),
         ],

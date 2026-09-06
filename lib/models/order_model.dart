@@ -56,14 +56,25 @@ class DeliveryOrder {
       return double.tryParse(value.toString()) ?? defaultValue;
     }
 
+    // الإحداثيات: `null` لا صفر.
+    //
+    // صفرٌ إحداثيةٌ صحيحة — نقطةٌ في خليج غينيا. فطلبٌ بلا موقع كان يرسم
+    // دبوساً هناك ويحسب المسافة بآلاف الكيلومترات، وهو أسوأ من ألّا يُرسم.
+    double? parseNullableDouble(dynamic value) {
+      if (value == null) return null;
+      final parsed = value is num ? value.toDouble() : double.tryParse(value.toString());
+      if (parsed == null || parsed == 0) return null;
+      return parsed;
+    }
+
     return DeliveryOrder(
       id: json['id']?.toString() ?? '',
       orderNumber: json['orderNumber']?.toString() ?? '',
       customerName: json['customerName'] as String?,
       customerPhone: json['customerPhone'] as String?,
       deliveryAddress: json['deliveryAddress'] as String?,
-      deliveryLat: parseDouble(json['deliveryLat'], 0.0),
-      deliveryLng: parseDouble(json['deliveryLng'], 0.0),
+      deliveryLat: parseNullableDouble(json['deliveryLat']),
+      deliveryLng: parseNullableDouble(json['deliveryLng']),
       status: json['status'] as String? ?? 'pending',
       total: parseDouble(json['total']),
       subtotal: parseDouble(json['subtotal']),
@@ -74,10 +85,16 @@ class DeliveryOrder {
       paymentMethod: json['paymentMethod'] as String? ?? 'cash',
       createdAt: json['createdAt'] as String? ?? '',
       notes: json['notes'] as String?,
-      restaurantName: json['restaurantName'] as String? ?? json['restaurant']?['name'] as String?,
-      restaurantAddress: json['restaurantAddress'] as String? ?? json['restaurant']?['address'] as String?,
-      restaurantLat: parseDouble(json['restaurantLat'] ?? json['restaurant']?['latitude']),
-      restaurantLng: parseDouble(json['restaurantLng'] ?? json['restaurant']?['longitude']),
+      restaurantName: json['restaurantName'] as String? ??
+          json['restaurant']?['name'] as String? ??
+          json['store']?['name'] as String?,
+      restaurantAddress: json['restaurantAddress'] as String? ??
+          json['restaurant']?['address'] as String? ??
+          json['store']?['address'] as String?,
+      restaurantLat: parseNullableDouble(
+          json['restaurantLat'] ?? json['restaurant']?['latitude'] ?? json['store']?['latitude']),
+      restaurantLng: parseNullableDouble(
+          json['restaurantLng'] ?? json['restaurant']?['longitude'] ?? json['store']?['longitude']),
       estimatedDeliveryTime: json['estimatedDeliveryTime'] as String?,
       items: (json['orderItems'] as List<dynamic>?)
               ?.map((e) => OrderItem.fromJson(e as Map<String, dynamic>))
@@ -87,8 +104,19 @@ class DeliveryOrder {
   }
 
   bool get needsCashCollection => !isPaid && paymentMethod == 'cash';
-  bool get isActive => ['accepted', 'preparing', 'ready', 'delivering'].contains(status);
-  bool get isCompleted => ['delivered', 'completed'].contains(status);
+
+  // الحالات تطابق تعداد Prisma. كانت تذكر `accepted` و`completed` ولا وجود
+  // لهما، فيسقط كل طلب من كل تصفية ويرى السائق قوائم فارغة وطلباته موجودة.
+  bool get isActive => ['preparing', 'ready', 'delivering'].contains(status);
+  bool get isCompleted => ['delivered', 'served'].contains(status);
+  bool get isCancelled => status == 'cancelled';
+
+  /// جاهزٌ للاستلام من المحلّ — أوّل ما يبحث عنه السائق في قائمته
+  bool get awaitingPickup => status == 'ready';
+  bool get onTheWay => status == 'delivering';
+
+  bool get hasPickupPoint => restaurantLat != null && restaurantLng != null;
+  bool get hasDropPoint => deliveryLat != null && deliveryLng != null;
 
   String get itemsSummary {
     if (items.isEmpty) return 'لا يوجد أصناف';
