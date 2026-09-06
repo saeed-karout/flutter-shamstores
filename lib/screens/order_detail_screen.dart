@@ -9,7 +9,9 @@ import '../services/order_service.dart';
 import '../services/location_service.dart';
 import '../models/order_model.dart';
 import '../utils/constants.dart';
+import '../widgets/collect_payment_sheet.dart';
 import '../widgets/delivery_map.dart';
+import '../widgets/sos_sheet.dart';
 import '../utils/formatters.dart';
 
 class OrderDetailScreen extends StatefulWidget {
@@ -24,6 +26,8 @@ class OrderDetailScreen extends StatefulWidget {
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
   bool _actionLoading = false;
   File? _deliveryImage;
+  /// طريقة الدفع التي أقرّ السائق باستلامها
+  String? _collectedMethod;
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
@@ -135,6 +139,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               icon: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.arrow_back, color: AppColors.primary, size: 20)),
               onPressed: () => Navigator.pop(context),
             ),
+            actions: [
+              // الطوارئ متاحة من كل شاشة يقف عندها السائق، لا من واحدة
+              IconButton(
+                tooltip: 'طلب مساعدة',
+                icon: const CircleAvatar(
+                  backgroundColor: AppColors.error,
+                  child: Icon(Icons.sos, color: Colors.white, size: 19),
+                ),
+                onPressed: () => SosSheet.show(context, orderService.client),
+              ),
+              const SizedBox(width: 6),
+            ],
           ),
 
           SliverToBoxAdapter(
@@ -356,12 +372,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ? const LinearProgressIndicator()
             : ElevatedButton(
                 onPressed: () async {
+                  // تحصيل المبلغ خطوةٌ صريحة قبل الإكمال
+                  if (order.status == 'delivering' && order.needsCashCollection) {
+                    final method = await CollectPaymentSheet.show(context, order);
+                    if (method == null || !mounted) return;
+                    _collectedMethod = method;
+                  }
+
                   setState(() => _actionLoading = true);
 
                   String? error;
                   if (order.status == 'delivering') {
-                    final ok = await orderService.markDelivered(order.id, image: _deliveryImage);
-                    error = ok ? null : 'تعذّر تأكيد التسليم';
+                    error = await orderService.markDelivered(
+                      order.id,
+                      image: _deliveryImage,
+                      paymentMethod: _collectedMethod,
+                    );
                   } else {
                     error = await orderService.acceptOrder(order.id);
                   }

@@ -32,6 +32,10 @@ class OrderService extends ChangeNotifier {
   String? get error => _error;
 
   late final Dio _dio;
+
+  /// عميل HTTP مهيّأ بالعنوان والرمز — تستعمله أوراقٌ صغيرة (الطوارئ مثلاً)
+  /// بدل أن تبني عميلاً ثانياً وتكرّر الإعداد
+  Dio get client => _dio;
   String? _authHeader;
 
   OrderService() {
@@ -143,49 +147,83 @@ class OrderService extends ChangeNotifier {
   }
 
 
-  Future<bool> markDelivered(String orderId, {File? image}) async {
+  /// تسليم الطلب.
+  ///
+  /// **الترتيب كان مقلوباً.** كان يضع الحالة `delivered` أوّلاً «لضمان قبول
+  /// الإكمال»، ثم يستدعي `/complete` — و`/complete` يشترط `delivering`
+  /// فيرتدّ 404. النتيجة: الطلب يصير `delivered` بلا تحصيل مسجَّل، وبلا
+  /// `actualDeliveryTime`، وبلا إشعار للزبون، وبلا قيد أرباح للسائق.
+  /// والفشل يُبتلع في `catch` فيبدو كل شيء ناجحاً.
+  ///
+  /// الترتيب الصحيح: إثبات ← تحصيل ← إكمال. و`/complete` هو من ينقل الحالة.
+  Future<String?> markDelivered(
+    String orderId, {
+    File? image,
+    String? paymentMethod,
+  }) async {
     _isLoading = true;
     notifyListeners();
     try {
       final order = getOrderById(orderId);
-      
-      // 1. رفع الإثبات إذا وجد
+
+      // 1) إثبات التسليم إن صُوّر
       if (image != null) {
-        final formData = FormData.fromMap({
-          'proof': await MultipartFile.fromFile(image.path, filename: 'proof.jpg'),
-        });
-        await _dio.post('/delivery/orders/$orderId/proof', data: formData);
+        try {
+          final formData = FormData.fromMap({
+            'proof': await MultipartFile.fromFile(image.path, filename: 'proof.jpg'),
+          });
+          await _dio.post('/delivery/orders/' + orderId + '/proof', data: formData);
+        } catch (e) {
+          // صورة لم تُرفع لا تمنع تسليماً وقع فعلاً
+          debugPrint('proof upload failed: ' + e.toString());
+        }
       }
 
-      // 2. تحديث الحالة إلى "delivered" أولاً لضمان قبول الإكمال
-      await _dio.patch('/delivery/orders/$orderId/status', data: {'status': 'delivered'});
-
-      // 3. إذا كان الطلب نقداً، نؤكد المستلم
-      if (order != null && order.paymentMethod == 'cash') {
-        await _dio.post('/delivery/orders/$orderId/confirm-payment', data: {'paymentMethod': 'cash'});
+      // 2) تحصيل المبلغ — قبل الإكمال لأن الخادم يشترطه على الدفع عند الباب
+      final needsCollection = order?.needsCashCollection ?? false;
+      if (needsCollection) {
+        await _dio.post(
+          '/delivery/orders/' + orderId + '/confirm-payment',
+          data: {'paymentMethod': paymentMethod ?? order?.paymentMethod ?? 'cash'},
+        );
       }
 
-      // 4. الإكمال النهائي
-      final res = await _dio.post('/delivery/orders/$orderId/complete');
-      
-      if (res.statusCode == 200 || res.statusCode == 201) {
-        await fetchOrders();
-        await fetchStats();
-        return true;
+      // 3) الإكمال — وهو من ينقل الحالة إلى delivered
+      final res = await _dio.post('/delivery/orders/' + orderId + '/complete');
+      if (res.data['success'] == true) {
+        await refreshQuietly();
+        return null;
       }
-      return false;
+      return res.data['error'] as String? ?? 'تعذّر إكمال الطلب';
+    } on DioException catch (e) {
+      final message = (e.response?.data as Map?)?['error'] as String?;
+      debugPrint('markDelivered error: ' + e.toString());
+      return message ?? 'تعذّر إكمال الطلب — تحقّق من الاتصال';
     } catch (e) {
-      debugPrint('markDelivered error: $e');
-      // محاولة الإكمال البسيط في حال فشل التسلسل المعقد
-      try {
-        final res = await _dio.patch('/delivery/orders/$orderId/status', data: {'status': 'delivered'});
-        return res.data['success'] == true;
-      } catch (_) {
-        return false;
-      }
+      debugPrint('markDelivered error: ' + e.toString());
+      return 'تعذّر إكمال الطلب';
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// تسجيل استلام المبلغ وحده — خطوة مستقلّة قبل التسليم
+  Future<String?> collectPayment(String orderId, String paymentMethod) async {
+    try {
+      final res = await _dio.post(
+        '/delivery/orders/' + orderId + '/confirm-payment',
+        data: {'paymentMethod': paymentMethod},
+      );
+      if (res.data['success'] == true) {
+        await refreshQuietly();
+        return null;
+      }
+      return res.data['error'] as String? ?? 'تعذّر تسجيل الاستلام';
+    } on DioException catch (e) {
+      return (e.response?.data as Map?)?['error'] as String? ?? 'تعذّر تسجيل الاستلام';
+    } catch (e) {
+      return 'تعذّر تسجيل الاستلام';
     }
   }
 

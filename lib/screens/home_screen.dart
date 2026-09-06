@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../services/auth_service.dart';
@@ -11,6 +12,7 @@ import 'order_detail_screen.dart';
 import 'history_screen.dart';
 import 'earnings_screen.dart';
 import '../utils/formatters.dart';
+import '../widgets/delivery_map.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -526,6 +528,16 @@ class _OrderCard extends StatelessWidget {
     final statusColor = OrderStatusHelper.getColor(order.status);
     final statusLabel = OrderStatusHelper.getLabel(order.status);
 
+    // المسافة من موقع السائق إلى المحلّ — تُحسب هنا لا في الخادم لأنها
+    // تتغيّر مع كل خطوة يخطوها
+    final position = context.watch<LocationService>().currentPosition;
+    final pickupDistance = (position != null && order.hasPickupPoint)
+        ? formatDistance(distanceMeters(
+            LatLng(position.latitude, position.longitude),
+            LatLng(order.restaurantLat!, order.restaurantLng!),
+          ))
+        : null;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -566,6 +578,24 @@ class _OrderCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (order.isAvailable) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'متاح للجميع',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
                     const Spacer(),
                     Text(
                       '#${order.orderNumber}',
@@ -606,7 +636,61 @@ class _OrderCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+
+                    // **من أين يستلم** — أوّل ما يحتاجه السائق قبل أن يتحرّك،
+                    // وكان غائباً عن البطاقة كلّياً. والمسافة معه: قرارُ قبول
+                    // الطلب يتعلّق ببُعده لا باسمه.
+                    if (order.restaurantName != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.storefront, size: 18, color: AppColors.warning),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    order.restaurantName!,
+                                    style: const TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.textDark,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (order.restaurantAddress != null)
+                                    Text(
+                                      order.restaurantAddress!,
+                                      style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            if (pickupDistance != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.warning.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  'يبعد $pickupDistance',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.warning,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
 
                     // Customer and Distance (Placeholder for distance)
                     Row(
@@ -658,7 +742,30 @@ class _OrderCard extends StatelessWidget {
                     // `pending` سقطت: طلبٌ لم يؤكّده التاجر بعد ليس جاهزاً
                     // للاستلام، وعرض زرّ القبول عليه يرسل السائق إلى محلٍّ
                     // لم يبدأ التحضير.
-                    if (order.status == 'ready')
+                    if (order.status == 'pending' || order.status == 'preparing')
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(
+                              order.status == 'pending' ? Icons.hourglass_top : Icons.restaurant,
+                              size: 15,
+                              color: AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                // سببُ الانتظار مكتوب: بدونه يظنّ السائق أن
+                                // التطبيق لم يستلم الطلب
+                                order.status == 'pending'
+                                    ? 'بانتظار تأكيد المحلّ'
+                                    : 'المحلّ يجهّز الطلب',
+                                style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (order.status == 'ready')
                       ElevatedButton(
                         onPressed: onAccept,
                         style: ElevatedButton.styleFrom(

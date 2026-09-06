@@ -7,7 +7,9 @@ import '../models/order_model.dart';
 import '../services/location_service.dart';
 import '../services/order_service.dart';
 import '../utils/constants.dart';
+import '../widgets/collect_payment_sheet.dart';
 import '../widgets/delivery_map.dart';
+import '../widgets/sos_sheet.dart';
 
 /// شاشة التتبّع — الخريطة ملء الشاشة مع لوحة سفلية للخطوة التالية.
 ///
@@ -50,13 +52,24 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   Future<void> _advance(DeliveryOrder order) async {
     final service = context.read<OrderService>();
+
+    // الدفع عند الباب يمرّ بورقة تحصيل صريحة: المال لا يُسجَّل بالنيابة عن
+    // أحد، والخادم يرفض الإكمال قبل تسجيله أصلاً.
+    String? method;
+    if (!order.awaitingPickup && order.needsCashCollection) {
+      method = await CollectPaymentSheet.show(context, order);
+      if (method == null) return; // تراجع السائق
+      if (!mounted) return;
+    }
+
     setState(() => _busy = true);
 
-    bool ok;
+    String? error;
     if (order.awaitingPickup) {
-      ok = await service.updateStatus(order.id, 'delivering');
+      final ok = await service.updateStatus(order.id, 'delivering');
+      error = ok ? null : 'تعذّر التحديث — حاول ثانيةً';
     } else {
-      ok = await service.markDelivered(order.id);
+      error = await service.markDelivered(order.id, paymentMethod: method);
     }
 
     if (!mounted) return;
@@ -64,13 +77,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(ok ? 'تم تحديث الطلب' : 'تعذّر التحديث — حاول ثانيةً'),
-        backgroundColor: ok ? AppColors.success : AppColors.error,
+        content: Text(error ?? (order.awaitingPickup ? 'انطلقت — بالتوفيق' : 'تم تسليم الطلب ✅')),
+        backgroundColor: error == null ? AppColors.success : AppColors.error,
         behavior: SnackBarBehavior.floating,
       ),
     );
 
-    if (ok && !order.awaitingPickup && mounted) Navigator.pop(context);
+    if (error == null && !order.awaitingPickup && mounted) Navigator.pop(context);
   }
 
   @override
@@ -130,6 +143,21 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   await context.read<LocationService>().getCurrentPosition();
                   _mapKey.currentState?.fitAll();
                 }),
+                const SizedBox(height: 8),
+                // الطوارئ في متناول الإبهام وهو على الطريق — لا في قائمة
+                Material(
+                  color: AppColors.error,
+                  shape: const CircleBorder(),
+                  elevation: 3,
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => SosSheet.show(context, context.read<OrderService>().client),
+                    child: const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: Icon(Icons.sos, color: Colors.white, size: 22),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
