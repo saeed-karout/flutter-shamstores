@@ -25,6 +25,10 @@ class DeliveryMap extends StatefulWidget {
   /// يمنع تحريك الخريطة — للمعاينة داخل بطاقة
   final bool interactive;
 
+  /// مسار القيادة الحقيقي. بغيابه يُرسم خطّ مستقيم — وهو يكذب مرّتين:
+  /// يقصّر المسافة، ويعطي اتجاهاً لا يصلح للسير.
+  final List<LatLng>? route;
+
   const DeliveryMap({
     super.key,
     this.pickup,
@@ -33,6 +37,7 @@ class DeliveryMap extends StatefulWidget {
     this.pickupLabel,
     this.dropLabel,
     this.interactive = true,
+    this.route,
   });
 
   @override
@@ -43,8 +48,12 @@ class DeliveryMapState extends State<DeliveryMap> {
   final MapController _controller = MapController();
   bool _ready = false;
 
-  List<LatLng> get _points =>
-      [widget.pickup, widget.drop, widget.driver].whereType<LatLng>().toList();
+  List<LatLng> get _points => [
+        ...[widget.pickup, widget.drop, widget.driver].whereType<LatLng>(),
+        // نقاط المسار تدخل في حساب الإطار: مسارٌ يلتفّ خارج المستطيل الذي
+        // يحدّه الطرفان يُقصّ نصفه إن حُسب الإطار من الطرفين وحدهما
+        ...(widget.route ?? const <LatLng>[]),
+      ];
 
   /// يضبط الإطار ليشمل كل النقاط.
   ///
@@ -71,7 +80,9 @@ class DeliveryMapState extends State<DeliveryMap> {
   @override
   void didUpdateWidget(covariant DeliveryMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.pickup != widget.pickup || oldWidget.drop != widget.drop) {
+    if (oldWidget.pickup != widget.pickup ||
+        oldWidget.drop != widget.drop ||
+        oldWidget.route?.length != widget.route?.length) {
       WidgetsBinding.instance.addPostFrameCallback((_) => fitAll());
     }
   }
@@ -127,9 +138,25 @@ class DeliveryMapState extends State<DeliveryMap> {
           maxZoom: 19,
         ),
 
-        // الخطّ بين الاستلام والتسليم — استقامةٌ لا مسار طرق، لكنه يقول
-        // للسائق الاتجاه والمسافة قبل أن يفتح تطبيق الملاحة
-        if (widget.pickup != null && widget.drop != null)
+        // المسار الحقيقي إن توفّر، وإلا خطّ مستقيم متقطّع يقول الاتجاه
+        // والمسافة التقريبية. المتقطّع مقصود: شكلُه يقول إنه تقدير لا طريق.
+        if (widget.route != null && widget.route!.length > 1)
+          PolylineLayer(
+            polylines: [
+              // حاشية بيضاء تحت الخطّ: الأزرق وحده يضيع فوق شوارع OSM
+              Polyline(
+                points: widget.route!,
+                strokeWidth: 8,
+                color: Colors.white.withValues(alpha: 0.9),
+              ),
+              Polyline(
+                points: widget.route!,
+                strokeWidth: 5,
+                color: AppColors.info,
+              ),
+            ],
+          )
+        else if (widget.pickup != null && widget.drop != null)
           PolylineLayer(
             polylines: [
               Polyline(

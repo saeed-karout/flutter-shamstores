@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/order_model.dart';
 import '../services/location_service.dart';
 import '../services/order_service.dart';
+import '../services/route_service.dart';
 import '../utils/constants.dart';
 import '../widgets/collect_payment_sheet.dart';
 import '../widgets/delivery_map.dart';
@@ -28,6 +29,23 @@ class TrackingScreen extends StatefulWidget {
 class _TrackingScreenState extends State<TrackingScreen> {
   final GlobalKey<DeliveryMapState> _mapKey = GlobalKey<DeliveryMapState>();
   bool _busy = false;
+
+  /// المسار المحسوب من موقع السائق إلى وجهته الحالية
+  DrivingRoute? _route;
+  String? _routeKey;
+
+  /// يطلب المسار مرّةً لكل (موقع، وجهة) — لا مع كل نبضة موقع
+  Future<void> _ensureRoute(LatLng from, LatLng to) async {
+    final key = '${from.latitude.toStringAsFixed(3)},${from.longitude.toStringAsFixed(3)}'
+        '|${to.latitude.toStringAsFixed(3)},${to.longitude.toStringAsFixed(3)}';
+    if (_routeKey == key) return;
+    _routeKey = key;
+
+    final route = await RouteService.fetch(from, to);
+    if (!mounted || route == null) return;
+    setState(() => _route = route);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _mapKey.currentState?.fitAll());
+  }
 
   @override
   void initState() {
@@ -108,7 +126,15 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
     // الوجهة تتبع مرحلة الطلب: قبل الاستلام المحلّ، وبعده الزبون
     final target = order.awaitingPickup ? (pickup ?? drop) : (drop ?? pickup);
-    final remaining = (driver != null && target != null) ? distanceMeters(driver, target) : null;
+
+    // المسافة على الطريق إن حُسب المسار، وإلا الخطّ المستقيم كتقدير
+    final straight = (driver != null && target != null) ? distanceMeters(driver, target) : null;
+    final remaining = _route?.distanceMeters ?? straight;
+
+    if (driver != null && target != null) {
+      // خارج البناء: `setState` داخل build يرمي
+      WidgetsBinding.instance.addPostFrameCallback((_) => _ensureRoute(driver, target));
+    }
 
     return Scaffold(
       body: Stack(
@@ -121,6 +147,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               driver: driver,
               pickupLabel: order.restaurantName ?? 'الاستلام',
               dropLabel: order.customerName ?? 'التسليم',
+              route: _route?.points,
             ),
           ),
 
@@ -251,14 +278,29 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     color: AppColors.primary.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(
-                    formatDistance(remaining),
-                    style: const TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primary,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        formatDistance(remaining),
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      // الزمن أنفع من المسافة للسائق: به يعد الزبون
+                      if (_route != null)
+                        Text(
+                          _route!.formattedDuration,
+                          style: const TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 10.5,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
             ],
