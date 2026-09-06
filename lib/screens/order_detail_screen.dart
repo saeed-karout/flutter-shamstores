@@ -192,7 +192,26 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(15), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)]),
       child: Row(
         children: [
-          const CircleAvatar(radius: 25, backgroundColor: AppColors.accent, child: Icon(Icons.person, color: AppColors.primary)),
+          // صورة صاحب الطلب — وجهٌ يبحث عنه السائق عند الباب.
+          // وبلا صورة: الحرف الأول من اسمه، لا أيقونةٌ عامّة تتكرّر على كل
+          // الطلبات فلا تميّز أحداً.
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: AppColors.accent,
+            backgroundImage: (order.customerAvatar != null && order.customerAvatar!.isNotEmpty)
+                ? NetworkImage(order.customerAvatar!)
+                : null,
+            child: (order.customerAvatar == null || order.customerAvatar!.isEmpty)
+                ? Text(
+                    order.customerInitial,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                    ),
+                  )
+                : null,
+          ),
           const SizedBox(width: 15),
           Expanded(
             child: Column(

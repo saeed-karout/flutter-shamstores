@@ -27,7 +27,10 @@ void main() async {
   ]);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
+    // شريط الحالة فوق شريط تطبيق داكن، فأيقوناته فاتحة
     statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: AppColors.white,
+    systemNavigationBarIconBrightness: Brightness.dark,
   ));
   runApp(const ShamDeliveryApp());
 }
@@ -47,9 +50,14 @@ class ShamDeliveryApp extends StatelessWidget {
       child: MaterialApp(
         title: AppConfig.appName,
         debugShowCheckedModeBanner: false,
+        // **الوضع الفاتح دائماً.**
+        //
+        // `ThemeMode.system` كان يجعل مظهر التطبيق يتبع هاتف السائق: نصفهم
+        // يفتحه فاتحاً ونصفهم داكناً، فيصير شكلٌ واحد مستحيلاً وتُختبَر
+        // شاشةٌ ويشتكي من رأى غيرها. والألوان في `AppColors` مضبوطة للفاتح
+        // أصلاً (بطاقات بيضاء، نصّ داكن)، فالوضع الداكن كان يخلطها.
         theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
+        themeMode: ThemeMode.light,
         locale: const Locale('ar', 'SA'),
         supportedLocales: const [Locale('ar', 'SA'), Locale('en', 'US')],
         localizationsDelegates: const [

@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'constants.dart';
 
+/// ثيم التطبيق — فاتح فقط.
+///
+/// `darkTheme` بقيت للتوافق مع أي استدعاء قديم، وهي نفس الفاتح: تركُها
+/// داكنةً مع `themeMode: light` يعني شيفرةً لا تُنفَّذ أبداً وتُصان بلا سبب.
 class AppTheme {
   static ThemeData get lightTheme => _buildTheme(Brightness.light);
-  static ThemeData get darkTheme => _buildTheme(Brightness.dark);
+  @Deprecated('التطبيق فاتح فقط — استعمل lightTheme')
+  static ThemeData get darkTheme => _buildTheme(Brightness.light);
 
   static ThemeData _buildTheme(Brightness brightness) {
     final bool isDark = brightness == Brightness.dark;
@@ -63,6 +68,32 @@ class AppTheme {
         bodyMedium: TextStyle(color: isDark ? Colors.white70 : AppColors.textDark),
         titleLarge: TextStyle(color: isDark ? Colors.white : AppColors.textDark, fontWeight: FontWeight.bold),
       ),
+
+      // أزرار وحقول بارتفاع لمسٍ مريح: السائق يضغط وهو واقف أو في سيّارة
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(0, 50),
+          backgroundColor: AppColors.primary,
+          foregroundColor: AppColors.white,
+          elevation: 0,
+          textStyle: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800, fontSize: 15),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 48),
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
+          textStyle: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w700, fontSize: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+      snackBarTheme: const SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        contentTextStyle: TextStyle(fontFamily: 'Cairo', color: Colors.white),
+      ),
+      dividerTheme: const DividerThemeData(color: AppColors.border, thickness: 1),
     );
   }
 }

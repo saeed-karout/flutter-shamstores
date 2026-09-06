@@ -1,8 +1,11 @@
+import 'package:characters/characters.dart';
+
 class DeliveryOrder {
   final String id;
   final String orderNumber;
   final String? customerName;
   final String? customerPhone;
+  final String? customerAvatar;
   final String? deliveryAddress;
   final double? deliveryLat;
   final double? deliveryLng;
@@ -31,6 +34,7 @@ class DeliveryOrder {
     required this.orderNumber,
     this.customerName,
     this.customerPhone,
+    this.customerAvatar,
     this.deliveryAddress,
     this.deliveryLat,
     this.deliveryLng,
@@ -76,6 +80,7 @@ class DeliveryOrder {
       orderNumber: json['orderNumber']?.toString() ?? '',
       customerName: json['customerName'] as String?,
       customerPhone: json['customerPhone'] as String?,
+      customerAvatar: json['customerAvatar'] as String? ?? json['creator']?['avatarUrl'] as String?,
       deliveryAddress: json['deliveryAddress'] as String?,
       deliveryLat: parseNullableDouble(json['deliveryLat']),
       deliveryLng: parseNullableDouble(json['deliveryLng']),
@@ -119,6 +124,13 @@ class DeliveryOrder {
   /// جاهزٌ للاستلام من المحلّ — أوّل ما يبحث عنه السائق في قائمته
   bool get awaitingPickup => status == 'ready';
   bool get onTheWay => status == 'delivering';
+
+  /// أوّل حرف من اسم الزبون — يُرسَم حين لا صورة، بدل أيقونة عامّة واحدة
+  /// تتكرّر على كل الطلبات فلا تميّز شيئاً
+  String get customerInitial {
+    final name = (customerName ?? '').trim();
+    return name.isEmpty ? '؟' : name.characters.first;
+  }
 
   bool get hasPickupPoint => restaurantLat != null && restaurantLng != null;
   bool get hasDropPoint => deliveryLat != null && deliveryLng != null;
