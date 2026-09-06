@@ -29,24 +29,13 @@ subprojects {
     }
 }
 
-// Force stable Kotlin for dependencies and skip metadata version check
-subprojects {
-    project.configurations.all {
-        resolutionStrategy.eachDependency {
-            if (requested.group == "org.jetbrains.kotlin") {
-                useVersion("1.9.25")
-            }
-        }
-    }
-}
-
-subprojects {
-    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-        kotlinOptions {
-            freeCompilerArgs = freeCompilerArgs + listOf("-Xskip-metadata-version-check")
-        }
-    }
-}
+// ملاحظة: كان هنا `resolutionStrategy` يفرض كل حزم `org.jetbrains.kotlin`
+// على 1.9.25، مع `-Xskip-metadata-version-check` لإسكات ما ينتج عنه. وهو
+// التفافٌ على تعارضٍ قديم، صار هو التعارض بعد رفع KGP إلى 2.1: يبقى
+// `kotlin-build-tools-impl` على 1.9.25 بينما الإضافة 2.1، فيفشل البناء
+// بـ«must have version aligned with the version of KGP».
+//
+// الحلّ أن تتوافق النسخ لا أن يُخفى اختلافها.
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)

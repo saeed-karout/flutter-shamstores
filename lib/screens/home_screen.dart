@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../services/auth_service.dart';
 import '../services/order_service.dart';
+import '../services/push_service.dart';
 import '../services/location_service.dart';
 import '../services/socket_service.dart';
 import '../models/order_model.dart';
@@ -78,6 +79,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       socketService.addOrderListener(_onRealtimeOrder);
       socketService.setAuthHeader(authService.authHeader!);
     }
+
+    // رمز الإشعارات عند كل إقلاع: يتغيّر مع إعادة التثبيت والتدوير
+    // الدوري، ورمزٌ ميّت عند الخادم يعني إشعاراً يصمت بلا أن يلاحظ أحد
+    await PushService.registerToken(orderService.client);
 
     await orderService.fetchOrders();
     await orderService.fetchStats();
@@ -184,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
 
     if (confirmed == true && mounted) {
+      // إبطال رمز الإشعارات قبل الخروج: هاتفٌ سلّمه السائق لغيره لا تصله
+      // إشعارات طلبات
+      await PushService.unregisterToken(context.read<OrderService>().client);
+      if (!mounted) return;
       context.read<OrderService>().stopPolling();
       context.read<LocationService>().stopTracking();
       await context.read<AuthService>().logout();

@@ -1,4 +1,4 @@
-package com.example.sham_delivery
+package com.sawalancer.shamstores
 
 import io.flutter.embedding.android.FlutterActivity
 

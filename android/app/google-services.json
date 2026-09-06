@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "242167559319",
+    "project_id": "shamstores-ba667",
+    "storage_bucket": "shamstores-ba667.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:242167559319:android:6c0c367f8d8a94401de5d2",
+        "android_client_info": {
+          "package_name": "com.sawalancer.shamstores"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBp2bxetmEzfVd8QM9r8lC0VT-pumyMl8I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

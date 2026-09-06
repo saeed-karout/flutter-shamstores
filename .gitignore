@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# مخرجات بناء أندرويد — تسرّب منها تقريرٌ مولَّد إلى المستودع
+android/build/
+android/app/build/

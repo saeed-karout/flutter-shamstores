@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
 import 'services/order_service.dart';
 import 'services/location_service.dart';
+import 'services/push_service.dart';
 import 'services/socket_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -21,6 +22,9 @@ void main() async {
   // بلا هذا يرمي `DateFormat(..., 'ar')` استثناء LocaleDataException عند أول
   // تاريخ يُعرض — وشاشة السجلّ كلّها تواريخ.
   await initializeDateFormatting('ar');
+  // الإشعارات تُهيَّأ قبل runApp: معالج الخلفية يجب أن يُسجَّل
+  // قبل أن يوقظ النظام التطبيق برسالة
+  await PushService.init();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
