@@ -96,6 +96,27 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   /// الخادم. و`assignDeliveryDriver` يرفض التعيين لسائق `isOnline = false`
   /// بخطأ 403 — فالسائق «متاح» على شاشته و«غير متاح» عند التاجر، ولا يصله
   /// طلب واحد مهما انتظر.
+  /// قبول طلب — من البركة أو من المعيَّن له.
+  ///
+  /// الخطأ يُعرض للسائق لا يُبتلع: «سبقك سائق آخر» جوابٌ يفهمه، أمّا زرٌّ
+  /// يُضغط ولا يحدث شيء فيُقرأ تطبيقاً معطّلاً.
+  Future<void> _acceptOrder(DeliveryOrder order) async {
+    final error = await context.read<OrderService>().acceptOrder(order.id);
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? 'الطلب لك الآن — في الطريق'),
+        backgroundColor: error == null ? AppColors.success : AppColors.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    if (error == null && mounted) {
+      Navigator.pushNamed(context, AppRoutes.tracking, arguments: order.id);
+    }
+  }
+
   Future<void> _toggleOnlineStatus() async {
     final next = !_isOnline;
     final orderService = context.read<OrderService>();
@@ -472,6 +493,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         itemBuilder: (ctx, i) => _OrderCard(
           order: orders[i],
           orderService: orderService,
+          onAccept: () => _acceptOrder(orders[i]),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -488,11 +510,15 @@ class _OrderCard extends StatelessWidget {
   final DeliveryOrder order;
   final OrderService orderService;
   final VoidCallback onTap;
+  /// القبول يبقى في الشاشة الأمّ: هي من تملك الـcontext لعرض النتيجة
+  /// والانتقال إلى التتبّع بعدها
+  final VoidCallback onAccept;
 
   const _OrderCard({
     required this.order,
     required this.orderService,
     required this.onTap,
+    required this.onAccept,
   });
 
   @override
@@ -629,9 +655,12 @@ class _OrderCard extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    if (order.status == 'ready' || order.status == 'pending')
+                    // `pending` سقطت: طلبٌ لم يؤكّده التاجر بعد ليس جاهزاً
+                    // للاستلام، وعرض زرّ القبول عليه يرسل السائق إلى محلٍّ
+                    // لم يبدأ التحضير.
+                    if (order.status == 'ready')
                       ElevatedButton(
-                        onPressed: () => orderService.acceptOrder(order.id),
+                        onPressed: onAccept,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.accent,
                           foregroundColor: AppColors.primary,
@@ -639,7 +668,10 @@ class _OrderCard extends StatelessWidget {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           elevation: 0,
                         ),
-                        child: const Text('قبول وتوصيل', style: TextStyle(fontWeight: FontWeight.bold)),
+                        child: Text(
+                          order.isAvailable ? 'استلم هذا الطلب' : 'قبول وتوصيل',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       )
                     else
                       const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),

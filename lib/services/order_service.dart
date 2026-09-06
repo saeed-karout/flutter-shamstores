@@ -17,8 +17,12 @@ class OrderService extends ChangeNotifier {
   List<DeliveryOrder> get history => _history;
   List<DeliveryOrder> get activeOrders =>
       _orders.where((o) => o.isActive).toList();
+  /// الجاهزة المعيَّنة له
   List<DeliveryOrder> get pendingOrders =>
-      _orders.where((o) => o.awaitingPickup).toList();
+      _orders.where((o) => o.awaitingPickup && !o.isAvailable).toList();
+  /// البركة: جاهزة بلا سائق
+  List<DeliveryOrder> get availableOrders =>
+      _orders.where((o) => o.isAvailable).toList();
   List<DeliveryOrder> get onTheWayOrders =>
       _orders.where((o) => o.onTheWay).toList();
   List<DeliveryOrder> get completedOrders =>
@@ -85,10 +89,33 @@ class OrderService extends ChangeNotifier {
 
   Future<void> fetchEarnings() async => fetchStats();
 
-  /// «استلمت الطلب وانطلقت» — لا حالة `accepted` في الخادم، والانتقال
-  /// الصحيح من `ready` هو `delivering`.
-  Future<bool> acceptOrder(String orderId) async {
-    return _updateOrderStatus(orderId, 'delivering');
+  /// قبول الطلب.
+  ///
+  /// `POST /accept` لا `PATCH /status`: الطلب قد يكون من البركة — جاهزاً بلا
+  /// سائق — وتحديث الحالة يشترط أن يكون معيَّناً للسائق أصلاً، فيرتدّ 404.
+  /// ومسار القبول يطالب بالطلب ذرّياً فيفصل حين يضغط سائقان معاً.
+  Future<String?> acceptOrder(String orderId) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final res = await _dio.post('/delivery/orders/' + orderId + '/accept');
+      if (res.data['success'] == true) {
+        await refreshQuietly();
+        return null;
+      }
+      return res.data['error'] as String? ?? 'تعذّر قبول الطلب';
+    } on DioException catch (e) {
+      // 409 يعني أن سائقاً آخر سبقه — رسالة الخادم أدقّ من أي نصّ عام
+      final message = (e.response?.data as Map?)?['error'] as String?;
+      debugPrint('acceptOrder error: ' + e.toString());
+      return message ?? 'تعذّر قبول الطلب';
+    } catch (e) {
+      debugPrint('acceptOrder error: ' + e.toString());
+      return 'تعذّر قبول الطلب';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> updateStatus(String orderId, String status) async {

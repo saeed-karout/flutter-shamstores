@@ -23,6 +23,9 @@ class DeliveryOrder {
   final String? estimatedDeliveryTime;
   final List<OrderItem> items;
 
+  /// طلبٌ جاهز بلا سائق: يراه كل سائقي النشاط ويسبق إليه أوّلهم
+  final bool isAvailable;
+
   DeliveryOrder({
     required this.id,
     required this.orderNumber,
@@ -47,6 +50,7 @@ class DeliveryOrder {
     this.restaurantLng,
     this.estimatedDeliveryTime,
     this.items = const [],
+    this.isAvailable = false,
   });
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) {
@@ -96,6 +100,7 @@ class DeliveryOrder {
       restaurantLng: parseNullableDouble(
           json['restaurantLng'] ?? json['restaurant']?['longitude'] ?? json['store']?['longitude']),
       estimatedDeliveryTime: json['estimatedDeliveryTime'] as String?,
+      isAvailable: json['isAvailable'] == true,
       items: (json['orderItems'] as List<dynamic>?)
               ?.map((e) => OrderItem.fromJson(e as Map<String, dynamic>))
               .toList() ??

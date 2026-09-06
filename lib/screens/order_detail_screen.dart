@@ -338,13 +338,38 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             : ElevatedButton(
                 onPressed: () async {
                   setState(() => _actionLoading = true);
-                  final success = order.status == 'delivering' 
-                      ? await orderService.markDelivered(order.id, image: _deliveryImage)
-                      : await orderService.acceptOrder(order.id);
-                  if (success && mounted) Navigator.pop(context);
-                  if (mounted) setState(() => _actionLoading = false);
+
+                  String? error;
+                  if (order.status == 'delivering') {
+                    final ok = await orderService.markDelivered(order.id, image: _deliveryImage);
+                    error = ok ? null : 'تعذّر تأكيد التسليم';
+                  } else {
+                    error = await orderService.acceptOrder(order.id);
+                  }
+
+                  if (!mounted) return;
+                  setState(() => _actionLoading = false);
+
+                  // الفشل كان يُبتلع صامتاً: يضغط السائق فلا يتغيّر شيء
+                  if (error != null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(error),
+                        backgroundColor: AppColors.error,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context);
                 },
-                child: Text(order.status == 'delivering' ? 'تأكيد إتمام التسليم' : 'قبول الطلب وبدء الرحلة'),
+                child: Text(
+                  order.status == 'delivering'
+                      ? 'تأكيد إتمام التسليم'
+                      : order.isAvailable
+                          ? 'استلم هذا الطلب'
+                          : 'قبول الطلب وبدء الرحلة',
+                ),
               ),
         ],
       ),
