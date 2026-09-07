@@ -31,6 +31,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    // السجلّ لا يُحمَّل مع الإقلاع بلا داعٍ — لكنه يُحمَّل فور فتح تبويبه،
+    // وإلا فُتح على قائمةٍ فارغة تقول «لا توجد طلبات مكتملة» وهي موجودة
+    _tabController.addListener(() {
+      if (_tabController.index == 2 && !_tabController.indexIsChanging) {
+        context.read<OrderService>().fetchHistory();
+      }
+    });
     _initServices();
   }
 
@@ -80,12 +87,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       socketService.setAuthHeader(authService.authHeader!);
     }
 
+    // فتحُ التطبيق من إشعار يجب أن يُظهر الطلب الذي أشعر به — لا آخر
+    // قائمةٍ حُمّلت قبل ساعة
+    PushService.onOpened = (_) {
+      if (!mounted) return;
+      orderService.refreshQuietly();
+      _tabController.animateTo(0);
+    };
+
     // رمز الإشعارات عند كل إقلاع: يتغيّر مع إعادة التثبيت والتدوير
     // الدوري، ورمزٌ ميّت عند الخادم يعني إشعاراً يصمت بلا أن يلاحظ أحد
     await PushService.registerToken(orderService.client);
 
     await orderService.fetchOrders();
     await orderService.fetchStats();
+    await orderService.fetchHistory(silent: true);
     // حالة الحضور تأتي من الخادم لا من ذاكرة الشاشة: السائق قد يكون متصلاً
     // من جلسة سابقة، فيفتح التطبيق فيجد الزرّ مطفأً وهو يستقبل طلبات.
     final online = await orderService.fetchAvailability();
@@ -206,6 +222,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void dispose() {
     // بلا إلغاء الاشتراك يبقى المعالج معلّقاً على خدمةٍ تعيش أطول من الشاشة
     context.read<SocketService>().removeOrderListener(_onRealtimeOrder);
+    PushService.onOpened = null;
     _tabController.dispose();
     _audioPlayer.dispose();
     super.dispose();
@@ -370,7 +387,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   emptyMsg: 'لا توجد طلبات جاهزة للاستلام'
                 ),
                 _buildOrderList(orderService.activeOrders, orderService, emptyMsg: 'لا توجد طلبات نشطة'),
-                _buildOrderList(orderService.completedOrders, orderService, emptyMsg: 'لا توجد طلبات مكتملة'),
+                // السجلّ لا القائمة العاملة: `/driver/orders` لا يعيد
+                // المسلَّمة أصلاً، فتصفيتُها منه كانت تعطي فراغاً دائماً
+                _buildOrderList(
+                  orderService.completedOrders,
+                  orderService,
+                  emptyMsg: 'لا توجد طلبات مكتملة بعد',
+                  loading: orderService.historyLoading,
+                  errorMsg: orderService.historyError,
+                  onRefresh: () => orderService.fetchHistory(),
+                ),
               ],
             ),
           ),
@@ -465,27 +491,77 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildOrderList(List<DeliveryOrder> orders, OrderService orderService, {required String emptyMsg}) {
-    if (orderService.isLoading && orders.isEmpty) {
+  Widget _buildOrderList(
+    List<DeliveryOrder> orders,
+    OrderService orderService, {
+    required String emptyMsg,
+    bool? loading,
+    String? errorMsg,
+    Future<void> Function()? onRefresh,
+  }) {
+    final isLoading = loading ?? orderService.isLoading;
+    final refresh = onRefresh ??
+        () async {
+          await orderService.fetchOrders();
+          await orderService.fetchStats();
+        };
+
+    if (isLoading && orders.isEmpty) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.primary),
       );
     }
 
-    if (orders.isEmpty) {
+    // الفشل يُقال ويُعرض معه زرّ إعادة. قائمةٌ فارغة تقول «لا توجد طلبات»
+    // بينما الشبكة منقطعة كذبٌ على السائق يجعله ينتظر ما لن يأتي.
+    if (errorMsg != null && orders.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.inbox_outlined, size: 64, color: AppColors.muted.withOpacity(0.5)),
+            const Icon(Icons.cloud_off, size: 56, color: AppColors.error),
+            const SizedBox(height: 12),
+            Text(
+              errorMsg,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontFamily: 'Cairo', color: AppColors.textMuted, fontSize: 13.5),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: refresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (orders.isEmpty) {
+      // القائمة الفارغة تبقى قابلة للسحب: بلا تمرير لا تعمل إيماءة التحديث
+      return RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(height: MediaQuery.of(context).size.height * 0.18),
+            Icon(Icons.inbox_outlined, size: 64, color: AppColors.muted.withValues(alpha: 0.5)),
             const SizedBox(height: 12),
             Text(
               emptyMsg,
+              textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'Cairo',
                 color: AppColors.muted,
                 fontSize: 14,
               ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'اسحب للأسفل للتحديث',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'Cairo', color: AppColors.muted, fontSize: 11.5),
             ),
           ],
         ),
@@ -494,10 +570,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () async {
-        await orderService.fetchOrders();
-        await orderService.fetchStats();
-      },
+      onRefresh: refresh,
       child: ListView.builder(
         padding: const EdgeInsets.all(12),
         itemCount: orders.length,
@@ -788,6 +861,23 @@ class _OrderCard extends StatelessWidget {
                           order.isAvailable ? 'استلم هذا الطلب' : 'قبول وتوصيل',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
+                      )
+                    else if (order.isCompleted || order.status == 'cancelled')
+                      // السهم لا يقول شيئاً في السجلّ. التاريخ يقول: هذا ما
+                      // وصّلتَه ومتى — وهو كلّ غرض التبويب.
+                      Row(
+                        children: [
+                          Icon(
+                            order.status == 'cancelled' ? Icons.cancel_outlined : Icons.check_circle,
+                            size: 15,
+                            color: order.status == 'cancelled' ? AppColors.error : AppColors.success,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            DateFmt.dateTime(order.createdAt),
+                            style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+                          ),
+                        ],
                       )
                     else
                       const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),

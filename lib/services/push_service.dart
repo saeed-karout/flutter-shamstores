@@ -34,6 +34,20 @@ class PushService {
 
   static bool _initialized = false;
 
+  /// يُستدعى حين يفتح السائق التطبيق من إشعار.
+  ///
+  /// بدونه يفتح الإشعار التطبيق على آخر شاشة كان عليها بقائمة قديمة —
+  /// فيقرأ «طلب جديد» ولا يجده. الشاشة تسجّل هنا ما تفعله عند الفتح.
+  static void Function(Map<String, dynamic> data)? onOpened;
+
+  static void _handleOpen(Map<String, dynamic> data) {
+    try {
+      onOpened?.call(data);
+    } catch (e) {
+      debugPrint('onOpened handler failed: $e');
+    }
+  }
+
   /// يُستدعى قبل `runApp`
   static Future<void> init() async {
     if (_initialized) return;
@@ -48,6 +62,15 @@ class PushService {
       );
       await _local.initialize(
         settings: const InitializationSettings(android: androidInit, iOS: iosInit),
+        onDidReceiveNotificationResponse: (response) {
+          final payload = response.payload;
+          if (payload == null) return;
+          try {
+            _handleOpen(Map<String, dynamic>.from(jsonDecode(payload) as Map));
+          } catch (_) {
+            _handleOpen(const {});
+          }
+        },
       );
 
       await _local
@@ -62,6 +85,17 @@ class PushService {
       FirebaseMessaging.onMessage.listen(_showForeground);
 
       FirebaseMessaging.onBackgroundMessage(_backgroundHandler);
+
+      // التطبيق في الخلفية والسائق ضغط الإشعار
+      FirebaseMessaging.onMessageOpenedApp.listen(
+        (message) => _handleOpen(Map<String, dynamic>.from(message.data)),
+      );
+
+      // التطبيق كان مقفلاً تماماً: الرسالة التي أقلعته تُقرأ مرّةً واحدة
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) {
+        _handleOpen(Map<String, dynamic>.from(initial.data));
+      }
 
       _initialized = true;
       debugPrint('PushService initialized');

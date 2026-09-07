@@ -8,6 +8,8 @@ import '../utils/constants.dart';
 class OrderService extends ChangeNotifier {
   List<DeliveryOrder> _orders = [];
   List<DeliveryOrder> _history = [];
+  bool _historyLoading = false;
+  String? _historyError;
   DriverStats _stats = DriverStats();
   bool _isLoading = false;
   String? _error;
@@ -25,11 +27,19 @@ class OrderService extends ChangeNotifier {
       _orders.where((o) => o.isAvailable).toList();
   List<DeliveryOrder> get onTheWayOrders =>
       _orders.where((o) => o.onTheWay).toList();
-  List<DeliveryOrder> get completedOrders =>
-      _orders.where((o) => o.isCompleted).toList();
+  /// المكتملة تأتي من السجلّ لا من الطلبات العاملة.
+  ///
+  /// **العلّة:** التبويب كان يصفّي `_orders` بحثاً عن `delivered` — و`_orders`
+  /// يأتي من `/driver/orders` الذي يعيد العاملة وحدها
+  /// (`pending|preparing|ready|delivering`). أي أن التبويب كان فارغاً
+  /// ببنائه: يصفّي قائمةً لا يمكن أن تحوي مطلوبَه. والسجلّ الحقيقي كان
+  /// مدفوناً في شاشةٍ داخل القائمة الجانبية.
+  List<DeliveryOrder> get completedOrders => _history;
   DriverStats get stats => _stats;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  bool get historyLoading => _historyLoading;
+  String? get historyError => _historyError;
 
   late final Dio _dio;
 
@@ -126,10 +136,19 @@ class OrderService extends ChangeNotifier {
     return _updateOrderStatus(orderId, status);
   }
 
-  Future<void> fetchHistory() async {
+  /// سجلّ ما انتهى — مسلَّماً كان أو مُلغى.
+  ///
+  /// `silent` للتحديث الخلفي بعد إتمام طلب: لا يومض مؤشّر تحميل على قائمةٍ
+  /// معروضة أصلاً.
+  Future<void> fetchHistory({bool silent = false}) async {
     if (_authHeader == null) return;
+    if (!silent) {
+      _historyLoading = true;
+      _historyError = null;
+      notifyListeners();
+    }
     try {
-      final res = await _dio.get('/delivery/driver/history');
+      final res = await _dio.get('/delivery/driver/history', queryParameters: {'limit': 50});
       final data = res.data;
       // الخادم يردّ `{data: {orders, pagination}}` لا مصفوفةً مباشرة، وقراءته
       // كمصفوفة كانت تعطي `null` دائماً — فيبقى السجلّ فارغاً أبداً.
@@ -140,9 +159,17 @@ class OrderService extends ChangeNotifier {
           .where((e) => e is Map<String, dynamic>)
           .map((e) => DeliveryOrder.fromJson(e as Map<String, dynamic>))
           .toList();
-      notifyListeners();
+      _historyError = null;
+    } on DioException catch (e) {
+      _historyError =
+          (e.response?.data as Map?)?['error'] as String? ?? 'تعذّر تحميل السجلّ';
+      debugPrint('fetchHistory error: ' + e.toString());
     } catch (e) {
-      debugPrint('fetchHistory error: $e');
+      _historyError = 'تعذّر تحميل السجلّ';
+      debugPrint('fetchHistory error: ' + e.toString());
+    } finally {
+      _historyLoading = false;
+      notifyListeners();
     }
   }
 
@@ -349,6 +376,9 @@ class OrderService extends ChangeNotifier {
   Future<void> refreshQuietly() async {
     await fetchOrders();
     await fetchStats();
+    // السجلّ معه: الطلب الذي يخرج من القائمة العاملة يجب أن يظهر في
+    // «المكتملة» فوراً، وإلا بدا وكأنه اختفى
+    await fetchHistory(silent: true);
   }
 
   /// حضور السائق.
