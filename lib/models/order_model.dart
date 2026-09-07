@@ -23,7 +23,13 @@ class DeliveryOrder {
   final String? restaurantAddress;
   final double? restaurantLat;
   final double? restaurantLng;
-  final String? estimatedDeliveryTime;
+  /// الزمن المتوقّع بالدقائق.
+  ///
+  /// **كان `String?` والعمود في القاعدة `Int?`.** فكل طلبٍ عُيّن تلقائياً
+  /// (والتعيين التلقائي يكتب ٦٠) كان `60 as String?` يرمي `TypeError`،
+  /// والرمية تخرج من `map` فتُلغي **القائمة كلها** — لا الطلب وحده. فيرى
+  /// السائق «لا توجد طلبات جاهزة للاستلام» وثلاثة طلباتٍ تنتظره.
+  final int? estimatedDeliveryTime;
   final List<OrderItem> items;
 
   /// طلبٌ جاهز بلا سائق: يراه كل سائقي النشاط ويسبق إليه أوّلهم
@@ -104,7 +110,11 @@ class DeliveryOrder {
           json['restaurantLat'] ?? json['restaurant']?['latitude'] ?? json['store']?['latitude']),
       restaurantLng: parseNullableDouble(
           json['restaurantLng'] ?? json['restaurant']?['longitude'] ?? json['store']?['longitude']),
-      estimatedDeliveryTime: json['estimatedDeliveryTime'] as String?,
+      estimatedDeliveryTime: switch (json['estimatedDeliveryTime']) {
+        final num n => n.round(),
+        final String s => int.tryParse(s),
+        _ => null,
+      },
       isAvailable: json['isAvailable'] == true,
       items: (json['orderItems'] as List<dynamic>?)
               ?.map((e) => OrderItem.fromJson(e as Map<String, dynamic>))

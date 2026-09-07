@@ -61,6 +61,24 @@ class OrderService extends ChangeNotifier {
     _dio.options.headers['Authorization'] = authHeader;
   }
 
+  /// يحوّل صفوف الخادم إلى طلبات، **صفّاً صفّاً**.
+  ///
+  /// الرمية داخل `map` تخرج منها فتُلغي القائمة كلها: حقلٌ واحد بنوعٍ غير
+  /// متوقّع في طلبٍ واحد كان يُخفي كل طلبات السائق. الصفّ الفاسد يُتخطّى
+  /// ويُسجَّل، والبقية تصل.
+  List<DeliveryOrder> _parseOrders(List<dynamic> rows) {
+    final parsed = <DeliveryOrder>[];
+    for (final row in rows) {
+      if (row is! Map) continue;
+      try {
+        parsed.add(DeliveryOrder.fromJson(Map<String, dynamic>.from(row)));
+      } catch (e) {
+        debugPrint('تعذّر تحليل طلب: ' + e.toString());
+      }
+    }
+    return parsed;
+  }
+
   Future<void> fetchOrders() async {
     if (_authHeader == null) return;
     _error = null;
@@ -70,10 +88,7 @@ class OrderService extends ChangeNotifier {
       final res = await _dio.get('/delivery/driver/orders');
       final data = res.data;
       final list = data is List ? data : (data['data'] as List? ?? []);
-      _orders = list
-          .where((e) => e is Map<String, dynamic>)
-          .map((e) => DeliveryOrder.fromJson(e as Map<String, dynamic>))
-          .toList();
+      _orders = _parseOrders(list);
       debugPrint('Fetched ${_orders.length} orders');
     } on DioException catch (e) {
       _error = (e.response?.data as Map?)?['error'] as String? ?? 'خطأ في تحميل الطلبات';
@@ -155,10 +170,7 @@ class OrderService extends ChangeNotifier {
       final list = data is List
           ? data
           : (data['data']?['orders'] as List? ?? data['data'] as List? ?? []);
-      _history = list
-          .where((e) => e is Map<String, dynamic>)
-          .map((e) => DeliveryOrder.fromJson(e as Map<String, dynamic>))
-          .toList();
+      _history = _parseOrders(list);
       _historyError = null;
     } on DioException catch (e) {
       _historyError =
@@ -348,12 +360,19 @@ class OrderService extends ChangeNotifier {
     }
   }
 
+  /// يبحث في العاملة ثمّ في السجلّ.
+  ///
+  /// كان يبحث في `_orders` وحدها — والطلب المسلَّم ليس فيها بل في `_history`.
+  /// فنقرُ طلبٍ من السجلّ كان يفتح شاشةً تقول «الطلب غير موجود» وهو معروضٌ
+  /// في القائمة التي نُقر منها.
   DeliveryOrder? getOrderById(String orderId) {
-    try {
-      return _orders.firstWhere((o) => o.id == orderId);
-    } catch (_) {
-      return null;
+    for (final order in _orders) {
+      if (order.id == orderId) return order;
     }
+    for (final order in _history) {
+      if (order.id == orderId) return order;
+    }
+    return null;
   }
 
   /// دورة احتياطية.
