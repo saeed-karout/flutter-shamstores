@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'services/auth_service.dart';
 import 'services/order_service.dart';
 import 'services/location_service.dart';
+import 'services/inbox_service.dart';
 import 'services/push_service.dart';
 import 'services/socket_service.dart';
 import 'screens/splash_screen.dart';
@@ -50,6 +51,11 @@ class ShamDeliveryApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => OrderService()),
         ChangeNotifierProvider(create: (_) => LocationService()),
         ChangeNotifierProvider(create: (_) => SocketService()),
+        // يشارك عميل `OrderService` نفسه: عنوانٌ واحد ورمزٌ واحد، فلا
+        // يبقى صندوق الوارد بلا مصادقة حين يسجّل السائق دخوله
+        ChangeNotifierProvider(
+          create: (ctx) => InboxService(ctx.read<OrderService>().client),
+        ),
       ],
       child: MaterialApp(
         title: AppConfig.appName,

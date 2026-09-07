@@ -3,6 +3,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../services/auth_service.dart';
+import '../services/inbox_service.dart';
 import '../services/order_service.dart';
 import '../services/push_service.dart';
 import '../services/location_service.dart';
@@ -11,6 +12,7 @@ import '../models/order_model.dart';
 import '../utils/constants.dart';
 import 'order_detail_screen.dart';
 import 'history_screen.dart';
+import 'notifications_screen.dart';
 import 'earnings_screen.dart';
 import '../utils/formatters.dart';
 import '../widgets/delivery_map.dart';
@@ -58,6 +60,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await orderService.refreshQuietly();
     if (!mounted) return;
 
+    if (mounted) context.read<InboxService>().refreshUnread();
+
     final after = orderService.orders.length;
     if (after > before) {
       _playSound();
@@ -89,8 +93,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     // فتحُ التطبيق من إشعار يجب أن يُظهر الطلب الذي أشعر به — لا آخر
     // قائمةٍ حُمّلت قبل ساعة
-    PushService.onOpened = (_) {
+    PushService.onOpened = (data) {
       if (!mounted) return;
+      context.read<InboxService>().refreshUnread();
+
+      // بثٌّ إداري لا حدثَ طلب: فتحُ قائمة الطلبات عليه يترك السائق يبحث
+      // عن طلبٍ لا وجود له
+      if (data['broadcastId'] != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+        );
+        return;
+      }
+
       orderService.refreshQuietly();
       _tabController.animateTo(0);
     };
@@ -102,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await orderService.fetchOrders();
     await orderService.fetchStats();
     await orderService.fetchHistory(silent: true);
+    await context.read<InboxService>().refreshUnread();
     // حالة الحضور تأتي من الخادم لا من ذاكرة الشاشة: السائق قد يكون متصلاً
     // من جلسة سابقة، فيفتح التطبيق فيجد الزرّ مطفأً وهو يستقبل طلبات.
     final online = await orderService.fetchAvailability();
@@ -277,6 +294,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ],
         ),
         actions: [
+          _buildInboxBell(),
           // Connection Status Dot
           _buildOnlineBadge(),
           const SizedBox(width: 10),
@@ -400,6 +418,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// جرس الوارد.
+  ///
+  /// الشارة تعرض غير المقروء: بلا رقمٍ ظاهر لا يفتح السائق الصندوق أبداً،
+  /// فتبقى تعليمات الإدارة فيه بلا قارئ.
+  Widget _buildInboxBell() {
+    final unread = context.watch<InboxService>().unread;
+
+    return IconButton(
+      tooltip: 'الإشعارات',
+      onPressed: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+      ),
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Icon(Icons.notifications_outlined, color: AppColors.accent),
+          if (unread > 0)
+            Positioned(
+              top: -4,
+              right: -5,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                constraints: const BoxConstraints(minWidth: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.error,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  unread > 99 ? '99+' : '$unread',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
